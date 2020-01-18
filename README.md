@@ -4,11 +4,11 @@ SUMOForest: prediction of protein SUMOylation sites with cascade forest
 
 Requirement
 =========
-    python-docx
-    numpy
-    sklearn
-    geatpy(Version 1.1.5)
-    gcforest
+    python-docx (Version 0.8.10)
+    numpy (Version 1.16.4)
+    sklearn (Version 0.21.3)
+    geatpy (Version 1.1.5)
+    gcforest (Version 1.1.1)
 
 Datasets
 =========
