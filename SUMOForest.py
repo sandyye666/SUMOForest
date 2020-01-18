@@ -1124,4 +1124,4 @@ if __name__ == '__main__':
     # GBDT_prediction(x, y.ravel())
     # SVM_prediction(x, y.ravel())
     # GCForest_prediction(x, y.ravel())
-    GAGCForest_prediction0(x, y.ravel())
+    GAGCForest_prediction(x, y.ravel())

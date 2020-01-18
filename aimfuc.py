@@ -214,7 +214,7 @@ def allga(Phen, LegV, feature_data, result_data):
     X_test, X_validation, Y_test, Y_validation = train_test_split(X_testv, Y_testv, test_size=0.5, random_state=random_state)
     Phen3 = Phen[:, 0:3]
     V_pred = np.zeros((len(Phen), len(Y_validation)))
-    T_pred = np.zeros((len(Phen), len(Y_test)))
+    T_pred = np.zeros((len(Phen), len(Y_test[0])))
     for i in range(len(wR)):
         class_weightR[0] = wR[i]
         class_weightE[0] = wE[i]
