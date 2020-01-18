@@ -7,7 +7,7 @@ Requirement
     python-docx
     numpy
     sklearn
-    geatpy
+    geatpy(V1.0)
     gcforest
 
 Datasets
