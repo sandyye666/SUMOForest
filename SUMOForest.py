@@ -256,21 +256,6 @@ def conditional_frequency(arrays):
     #     print(r)
     return conditional_frequency_array
 
-
-# #用（条件，信息）熵来代替频率
-# def to_entropy(arrays):
-#     entropy_array = zeros((len(arrays), 21))
-#     for site in range(len(arrays)):
-#         for i in range(len(arrays[0])):  # 位点位置
-#             if arrays[site][i] == 0:
-#                 entropy_array[site][i] = 0
-#             else:
-#                 entropy_array[site][i] = 0 - arrays[site][i] * np.math.log(arrays[site][i], 2)
-#         # entropy_array[site][21] = arrays[site][21]仅仅只传入了特征矩阵的分布21*21
-#     # for r in entropy_array:
-#     #     print(r)
-#     return entropy_array
-
 # 根据氨基酸在—1和+2的出现的氨基酸的特性构造两组特征
 def hydrophobic_position_array(allarrary, datatype):
     native_amino_acid = ('A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L',
@@ -381,139 +366,6 @@ def Get_Average(list):
       sum += item
    return sum/len(list)
 
-def Stacking(feature_data, result_data):
-    feature_train, feature_test, result_train, result_test = train_test_split(feature_data, result_data, test_size=0.1, random_state=random_state)
-    '''模型融合中使用到的各个单模型'''
-    class_weight = dict({0: 1.5, 1: 20.5})
-    clfs = [
-            RandomForestClassifier(bootstrap=True, class_weight=class_weight, criterion='entropy', max_depth=15,
-                                   max_features=40, max_leaf_nodes=None, min_impurity_decrease=0.0,
-                                   min_impurity_split=None, min_samples_leaf=1, min_samples_split=2,
-                                   min_weight_fraction_leaf=0.0, n_estimators=174, n_jobs=-1, oob_score=False,
-                                   random_state=random_state, verbose=0, warm_start=False),
-            # tree.DecisionTreeClassifier(random_state=random_state, max_depth=4, min_samples_leaf=6, min_samples_split=18,
-            #                             max_features=85, criterion='gini'),
-            # KNeighborsClassifier(n_neighbors=50),
-            # GaussianNB(),
-            # MultinomialNB(), # 必须要求样本值为负，不符合
-            # SVC(gamma='auto', C=0.001, kernel="linear",probability=True),
-            # LogisticRegression(random_state=random_state, C=0.9, solver='newton-cg', class_weight=class_weight),
-            # GradientBoostingClassifier(random_state=random_state, learning_rate=0.2, n_estimators=261,
-            #                            max_depth=10, min_samples_split=2, min_samples_leaf=95,
-            #                            max_features=21, subsample=0.75)
-    ]
-
-    '''切分一部分数据作为测试集'''
-    X, X_predict, y, y_predict = train_test_split(feature_data, result_data, test_size=0.2, random_state=random_state)
-    skfall = list(StratifiedKFold(n_splits=5, shuffle=True, random_state=random_state).split(feature_data, result_data))
-    acc = np.zeros(5).reshape(5,-1)
-    sp = np.zeros(5).reshape(5,-1)
-    sn = np.zeros(5).reshape(5,-1)
-    mcc = np.zeros(5).reshape(5,-1)
-    auc = np.zeros(5).reshape(5,-1)
-    for k, (train, predict) in enumerate(skfall):
-        X, y, X_predict, y_predict = feature_data[train], result_data[train], feature_data[predict], result_data[predict]
-        dataset_blend_train = np.zeros((X.shape[0], len(clfs)))
-        dataset_blend_test = np.zeros((X_predict.shape[0], len(clfs)))
-        '''5折stacking'''
-        n_splits = 5
-        skf = list(StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state).split(X, y))
-        for j, clf in enumerate(clfs):
-            '''依次训练各个单模型'''
-            # print(j, clf)
-            dataset_blend_test_j = np.zeros((X_predict.shape[0], len(skf)))
-            for i, (train, test) in enumerate(skf):
-                '''使用第i个部分作为预测，剩余的部分来训练模型，获得其预测的输出作为第i部分的新特征。'''
-                # print("Fold", i)
-                X_train, y_train, X_test, y_test = X[train], y[train], X[test], y[test]
-                clf.fit(X_train, y_train)
-                y_submission = clf.predict_proba(X_test)[:, 1]
-                dataset_blend_train[test, j] = y_submission
-                dataset_blend_test_j[:, i] = clf.predict_proba(X_predict)[:, 1]
-            '''对于测试集，直接用这k个模型的预测值均值作为新的特征。'''
-            dataset_blend_test[:, j] = dataset_blend_test_j.mean(1)
-            print("val auc Score: %f" % roc_auc_score(y_predict, dataset_blend_test[:, j]))
-        class_weightLR = dict({0: 0.8, 1: 1.8})
-        # class_weightLR= dict({0: 0.3, 1: 1.8})
-        # clf = LogisticRegression(random_state=random_state, C=0.9, solver='newton-cg', class_weight=class_weight)
-        clf = LogisticRegression(class_weight=class_weightLR)
-        # clf = GradientBoostingClassifier(learning_rate=0.02, subsample=0.5, max_depth=6, n_estimators=30)
-        clf.fit(dataset_blend_train, y)
-        y_submission = clf.predict(dataset_blend_test)
-
-        # print("Linear stretch of predictions to [0,1]")
-        # y_submission = (y_submission - y_submission.min()) / (y_submission.max() - y_submission.min())
-        print("blend result")
-        print("val auc Score: %f" % (roc_auc_score(y_predict, y_submission)))
-        confmat = confusion_matrix(y_predict, y_submission)
-        acc[k] = accuracy_score(y_predict, y_submission)
-        sn[k] = (confmat[1, 1] / (confmat[1, 0] + confmat[1, 1]))
-        sp[k] = (confmat[0, 0] / (confmat[0, 0] + confmat[0, 1]))
-        mcc[k] = matthews_corrcoef(y_predict, y_submission)
-        auc[k] = roc_auc_score(y_predict, y_submission, average='macro')
-        # print('1. The acc score of the model {}\n'.format(accuracy_score(y_predict, y_submission)))
-        # print('2. The sp score of the model {}\n'.format(sp[k]))
-        # print('3. The sn score of the model {}\n'.format(sn[k]))
-        # print('4. The mcc score of the model {}\n'.format(matthews_corrcoef(y_predict, y_submission)))
-        # print('9. The auc score of the model {}\n'.format(roc_auc_score(y_predict, y_submission, average='macro')))
-        # print('6. The recall score of the model {}\n'.format(recall_score(y_predict, y_submission, average='macro')))
-        # print('5. The F-1 score of the model {}\n'.format(f1_score(y_predict, y_submission, average='macro')))
-        # print('7. Classification report \n {} \n'.format(classification_report(y_predict, y_submission)))
-        # print('8. Confusion matrix \n {} \n'.format(confusion_matrix(y_predict, y_submission)))
-
-        # class_weight = dict({0: 20.5, 1: 1.5})
-        def re_predict(data, threshods):
-            argmax = np.argmax(data)
-            if argmax == 1:
-                return argmax
-            else:
-                if data[argmax] >= threshods[argmax]:
-                    return argmax
-                else:
-                    return (argmax + 1)
-
-        y_submission_proba = clf.predict_proba(dataset_blend_test)
-
-        threshold = [0.92, 0.30]
-        new_pred = []
-        print(y_submission.shape[0])
-        for i in range(y_submission.shape[0]):
-            new_pred.append(re_predict(y_submission_proba[i, :], threshold))
-        print(k)
-        confmat = confusion_matrix(y_predict, new_pred)
-        # sp = confmat[1, 1] / (confmat[1, 0] + confmat[1, 1])
-        # # sn = confmat[0, 0] / (confmat[0, 0] + confmat[0, 1])
-        acc[k] = accuracy_score(y_predict, new_pred)
-        sn[k] = (confmat[1, 1] / (confmat[1, 0] + confmat[1, 1]))
-        sp[k] = (confmat[0, 0] / (confmat[0, 0] + confmat[0, 1]))
-        mcc[k] = matthews_corrcoef(y_predict, new_pred)
-        auc[k] = roc_auc_score(y_predict, new_pred, average='macro')
-
-        # print('1. The acc score of the model {}\n'.format(accuracy_score(y_predict, new_pred)))
-        # print('2. The sp score of the model {}\n'.format(sn[k]))
-        # print('3. The sn score of the model {}\n'.format(sp[k]))
-        # print('4. The mcc score of the model {}\n'.format(matthews_corrcoef(y_predict, new_pred)))
-        # print('4. The auc score of the model {}\n'.format(roc_auc_score(y_predict, new_pred, average='macro')))
-        # print('5. The F-1 score of the model {}\n'.format(f1_score(y_predict, new_pred, average='macro')))
-        # print('6. The recall score of the model {}\n'.format(recall_score(y_predict, new_pred, average='macro')))
-        # print('7. Classification report \n {} \n'.format(classification_report(y_predict, new_pred)))
-        # print('8. Confusion matrix \n {} \n'.format(confusion_matrix(y_predict, new_pred)))
-    aveacc = acc.mean()
-    avesn = sn.mean()
-    avesp = sp.mean()
-    avemcc = mcc.mean()
-    aveauc = auc.mean()
-    print("--------------------------------------------------------------------------")
-    print('1. The acc score of the model {}\n'.format(aveacc))
-    print('2. The sp score of the model {}\n'.format(avesp))
-    print('3. The sn score of the model {}\n'.format(avesn))
-    print('4. The mcc score of the model {}\n'.format(avemcc))
-    print('5. The auc score of the model {}\n'.format(aveauc))
-    # print('5. The F-1 score of the model {}\n'.format(f1_score(y_predict, new_pred, average='macro')))
-    # print('6. The recall score of the model {}\n'.format(recall_score(y_predict, new_pred, average='macro')))
-    # print('7. Classification report \n {} \n'.format(classification_report(y_predict, new_pred)))
-    # print('8. Confusion matrix \n {} \n'.format(confusion_matrix(y_predict, new_pred)))
-
 def RandomForest_prediction(feature_data, result_data):
     kf = StratifiedKFold(n_splits=5) # 分层采样，确保训练集，测试集中各类别样本的比例与原始数据集中相同，需要目标数据
     all_pred = np.zeros(feature_data.shape[0])
@@ -539,27 +391,6 @@ def RandomForest_prediction(feature_data, result_data):
         #  "n_estimators": 70, "min_samples_leaf": 4, "min_samples_split": 10, "max_depth": 8, "class_weight": "balanced", "n_jobs": -1
         # result_train.ravel()
         clf.fit(feature_train, result_train.ravel())
-        # print("系数反映每个特征的影响力。越大表示该特征在分类中起到的作用越大")
-        # print(clf.feature_importances_)
-        # feature_importances = np.zeros((4))
-        # featurearray = clf.feature_importances_
-        #
-        # for i in range(len(featurearray)):
-        #     if (i < 21):
-        #         feature_importances[0] += featurearray[i]
-        #         # 频率权重矩阵 21
-        #     elif (i < 42):
-        #         feature_importances[1] += featurearray[i]
-        #         # 条件频率权重矩阵 21
-        #     elif (i < 44):
-        #         feature_importances[2] += featurearray[i]
-        #         # 位置特性 2
-        #     else:
-        #         feature_importances[3] += featurearray[i]
-        #         # bigram 74
-        #
-        # for r in feature_importances:
-        #     print(r)
         test_pred = clf.predict(feature_test)
         test_proba = clf.predict_proba(feature_test)
         all_pred[test_index] = test_pred
@@ -632,33 +463,15 @@ def get_toy_config():
     ca_config["n_classes"] = 2      #判别的类别数量
     ca_config["estimators"] = []
     # ca_config["estimators"].append(
-    #         {"n_folds": 5, "type": "XGBClassifier", "n_estimators": 10, "max_depth": 5,
+    #         {"n_folds": 5, "type": "XGBClassifier", "n_estimators": 10, "max_depth": 5,i
     #          "objective": "multi:softprob", "silent": True, "nthread": -1, "learning_rate": 0.1} )
     ca_config["estimators"].append({"n_folds": 5, "type": "RandomForestClassifier", "n_estimators": 70, "min_samples_leaf": 4, "min_samples_split": 10, "max_depth": 8, "class_weight": "balanced", "n_jobs": -1})
-    ca_config["estimators"].append({"n_folds": 5, "type": "ExtraTreesClassifier", "n_estimators": 100, "min_samples_leaf": 4, "min_samples_split": 10, "max_depth": 8, "class_weight": dict({0: 13, 1: 1}), "n_jobs": -1})
+    ca_config["estimators"].append({"n_folds": 5, "type": "ExtraTreesClassifier", "n_estimators": 100, "min_samples_leaf": 4, "min_samples_split": 10, "max_depth": 8, "class_weight": dict({0: 1, 1: 13}), "n_jobs": -1})
     ca_config["estimators"].append({"n_folds": 5, "type": "LogisticRegression", "class_weight": "balanced", "penalty" : "l2", "solver": "lbfgs"})
     config["cascade"] = ca_config    #共使用了四个基学习器
     return config
-def get_toy_config0(r, e, l):
-    config = {}
-    ca_config = {}
-    class_weightR={0:1, 1:1}
-    class_weightE={0:1, 1:1}
-    class_weightL={0:1, 1:1}
-    class_weightR[0] = r
-    class_weightE[0] = e
-    class_weightL[0] = l
-    ca_config["random_state"] = 0  # 0 or 1
-    ca_config["max_layers"] = 10  #最大的层数，layer对应论文中的level
-    ca_config["early_stopping_rounds"] = 3  #如果出现某层的三层以内的准确率都没有提升，层中止
-    ca_config["n_classes"] = 2      #判别的类别数量
-    ca_config["estimators"] = []
-    ca_config["estimators"].append({"n_folds": 5, "type": "RandomForestClassifier", "n_estimators": 70, "min_samples_leaf": 4, "min_samples_split": 10, "max_depth": 8, "class_weight": class_weightR, "n_jobs": -1})
-    ca_config["estimators"].append({"n_folds": 5, "type": "ExtraTreesClassifier", "n_estimators": 100, "min_samples_leaf": 4, "min_samples_split": 10, "max_depth": 8, "class_weight": class_weightE, "n_jobs": -1})
-    ca_config["estimators"].append({"n_folds": 5, "type": "LogisticRegression", "class_weight": class_weightL, "penalty" : "l2", "solver": "lbfgs"})
-    config["cascade"] = ca_config    #共使用了四个基学习器
-    return config
-def get_toy_config1():
+
+def get_config():
     config = {}
     ca_config = {}
     ca_config["random_state"] = 0  # 0 or 1
@@ -674,8 +487,8 @@ def get_toy_config1():
     ca_config["estimators"].append({"n_folds": 5, "type": "LogisticRegression"})
     config["cascade"] = ca_config    #共使用了四个基学习器
     return config
-# get_toy_config()生成的结构，如下所示：
 
+# get_toy_config()生成的结构，如下所示：
 '''
 {
 "cascade": {
@@ -683,29 +496,22 @@ def get_toy_config1():
     "max_layers": 100,000000000000000000000000000000
     "early_stopping_rounds": 3,
     "n_classes": 2,
-    "estimators": [
+    "estimators": 
+    [
         {"n_folds":5,"type":"ExtraTreesClassifier","n_estimators":10,
 		"max_depth":null,"n_jobs":-1},
        {"n_folds":5,"type":"RandomForestClassifier","n_estimators":10,
 		"max_depth":null,"n_jobs":-1},
-        {"n_folds":5,"type":"XGBClassifier","n_estimators":10,"max_depth":5,
-		"objective":"multi:softprob", "silent":true,
-		"nthread":-1, "learning_rate":0.1},
         { "n_folds": 5, "type": "LogisticRegression"}
     ]
 }
 }
 '''
-        # {"n_folds":5,"type":"RandomForestClassifier","n_estimators":10,
-		# "max_depth":null,"n_jobs":-1},
-     # {"n_folds":5,"type":"XGBClassifier","n_estimators":10,"max_depth":5,
-		# "objective":"multi:softprob", "silent":true,
-		# "nthread":-1, "learning_rate":0.1},
-# {"n_folds": 5, "type": "LogisticRegression"}
+
 def GAGCForest_prediction0(feature_data, result_data):
     # 获取函数接口地址
     AIM_M = __import__('aimfuc')
-    AIM_F = 'allga'
+    AIM_F = 'gcforestCM'
     """============================变量设置============================"""
     wR = [0.01, 1]
     wE = [0.01, 1]
@@ -811,7 +617,7 @@ def GAGCForest_prediction(feature_data, result_data):
         X_test_enc = gc.transform(X_test)
         # 获取函数接口地址
         AIM_M = __import__('aimfuc')
-        AIM_F = 'gcforestF13'
+        AIM_F = 'gcforestCM'
         """============================变量设置============================"""
         w1 = [0, 1]
         w2 = [0, 1]
@@ -981,33 +787,6 @@ def GCForest_prediction(feature_data, result_data):
     print('8. Confusion matrix \n {} \n'.format(confusion_matrix(result_data, test_pred)))
 
 
-
-    # # class_weightLR = dict({0: 1, 1: 5})
-    # # clf = LogisticRegression(C=1.0, class_weight=class_weightLR, dual=False, fit_intercept=True,
-    # #       intercept_scaling=1, max_iter=100, multi_class='ovr', n_jobs=1,
-    # #       penalty='l2', random_state=None, solver='liblinear', tol=0.0001,
-    # #       verbose=0, warm_start=False)
-    # # clf = LogisticRegression()
-    # clf = GaussianNB()
-    # # clf = Perceptron()
-    # # clf = QuadraticDiscriminantAnalysis()
-    # clf.fit(part_X_train_enc, result_train)
-    # # new_y_proba = clf.predict_proba(part_X_test_enc)[:, 1]
-    # new_y_pred = clf.predict(part_X_test_enc)
-    # confmat = confusion_matrix(result_test, new_y_pred)
-    # sn = confmat[1, 1] / (confmat[1, 0] + confmat[1, 1])
-    # sp = confmat[0, 0] / (confmat[0, 0] + confmat[0, 1])
-    # print('1. The acc score of the model {}\n'.format(accuracy_score(result_test, new_y_pred)))
-    # print('2. The sp score of the model {}\n'.format(sp))
-    # print('3. The sn score of the model {}\n'.format(sn))
-    # print('4. The mcc score of the model {}\n'.format(matthews_corrcoef(result_test, new_y_pred)))
-    # # print('9. The auc score of the model {}\n'.format(roc_auc_score(result_test, new_y_proba, average='macro')))
-    # print('6. The recall score of the model {}\n'.format(recall_score(result_test, new_y_pred, average='macro')))
-    # print('5. The F-1 score of the model {}\n'.format(f1_score(result_test, new_y_pred, average='macro')))
-    # print('7. Classification report \n {} \n'.format(classification_report(result_test, new_y_pred)))
-    # print('8. Confusion matrix \n {} \n'.format(confusion_matrix(result_test, new_y_pred)))
-
-
 if __name__ == '__main__':
     psiteList = getSite('PositiveData.docx')
     nsiteList = getSite('NegativeData.docx')
@@ -1114,14 +893,10 @@ if __name__ == '__main__':
     # 再加上skip_gram进行预测
     six_feature_array = splice_feature_array(five_feature_array, min_skip_gram_frequency_allarray)
     x, y = np.split(six_feature_array, (len(six_feature_array[0])-1, ), axis=1)
-    # print(shape(x))a
+    # print(shape(x))
     # y.ravel('F')
     # LogisticRegression_prediction(x, y.ravel())
     # ExtraTree_prediction(x, y.ravel())
     # RandomForest_prediction(x, y.ravel())
-    # BP_prediction(x,y)
-    # Stacking(x, y.ravel())
-    # GBDT_prediction(x, y.ravel())
-    # SVM_prediction(x, y.ravel())
     # GCForest_prediction(x, y.ravel())
     GAGCForest_prediction(x, y.ravel())
