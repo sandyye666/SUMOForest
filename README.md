@@ -8,6 +8,7 @@ Requirement
     numpy (Version 1.16.4)
     sklearn (Version 0.21.3)
     geatpy (Version 1.1.5)
+    * Geatpy package has updated to 2.3.0 which is very different to 1.1.5 we used. Please use geatpy in Version 1.1.5.
     gcforest (Version 1.1.1)
 
 Datasets
